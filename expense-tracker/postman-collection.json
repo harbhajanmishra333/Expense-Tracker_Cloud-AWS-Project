@@ -1,0 +1,247 @@
+{
+  "info": {
+    "name": "Expense Tracker API - No Auth",
+    "description": "API collection for testing expense tracker endpoints WITHOUT authentication",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://dxrdjqrw54.execute-api.us-east-1.amazonaws.com",
+      "type": "string"
+    },
+    {
+      "key": "expenseId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Test Endpoint",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/test",
+          "host": ["{{baseUrl}}"],
+          "path": ["test"]
+        },
+        "description": "Simple test to verify API is working"
+      }
+    },
+    {
+      "name": "2. Add Expense (No Auth)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 50.00,\n  \"category\": \"Food & Dining\",\n  \"description\": \"Lunch with team\",\n  \"date\": \"2024-10-31\",\n  \"paymentMethod\": \"credit\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/expenses-test",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses-test"]
+        },
+        "description": "Add a new expense. Copy the expenseId from response for update/delete."
+      }
+    },
+    {
+      "name": "3. Get All Expenses (No Auth)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/expenses-test",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses-test"]
+        },
+        "description": "Get all expenses for test user"
+      }
+    },
+    {
+      "name": "4. Update Expense (No Auth)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 75.00,\n  \"description\": \"Updated lunch expense\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/expenses-test/{{expenseId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses-test", "{{expenseId}}"]
+        },
+        "description": "Update an expense. Set expenseId variable first!"
+      }
+    },
+    {
+      "name": "5. Delete Expense (No Auth)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/expenses-test/{{expenseId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses-test", "{{expenseId}}"]
+        },
+        "description": "Delete an expense. Set expenseId variable first!"
+      }
+    },
+    {
+      "name": "Add Expense",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 50.00,\n  \"category\": \"Food & Dining\",\n  \"description\": \"Lunch with team\",\n  \"date\": \"2024-10-31\",\n  \"paymentMethod\": \"credit\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/expenses",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses"]
+        }
+      }
+    },
+    {
+      "name": "Get Expenses",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/expenses",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses"]
+        }
+      }
+    },
+    {
+      "name": "Get Analytics",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analytics",
+          "host": ["{{baseUrl}}"],
+          "path": ["analytics"]
+        }
+      }
+    },
+    {
+      "name": "Get Categories",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/categories",
+          "host": ["{{baseUrl}}"],
+          "path": ["categories"]
+        }
+      }
+    },
+    {
+      "name": "Update Expense",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 75.00,\n  \"description\": \"Updated lunch expense\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/expenses/EXPENSE_ID_HERE",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses", "EXPENSE_ID_HERE"]
+        }
+      }
+    },
+    {
+      "name": "Delete Expense",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/expenses/EXPENSE_ID_HERE",
+          "host": ["{{baseUrl}}"],
+          "path": ["expenses", "EXPENSE_ID_HERE"]
+        }
+      }
+    },
+    {
+      "name": "Generate Report",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "{{idToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"startDate\": \"2024-10-01\",\n  \"endDate\": \"2024-10-31\",\n  \"format\": \"csv\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/reports/generate",
+          "host": ["{{baseUrl}}"],
+          "path": ["reports", "generate"]
+        }
+      }
+    }
+  ]
+}

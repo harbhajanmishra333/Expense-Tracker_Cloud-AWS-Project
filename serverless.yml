@@ -1,0 +1,260 @@
+service: serverless-cloud-storage
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1  # Change to your preferred region
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+  
+  environment:
+    FILES_TABLE: ${self:custom.filesTableName}
+    FILES_BUCKET: ${self:custom.filesBucketName}
+    REGION: ${self:provider.region}
+  
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+            - s3:PutObjectAcl
+          Resource: 
+            - arn:aws:s3:::${self:custom.filesBucketName}/*
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.filesTableName}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.filesTableName}/index/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: '*'
+
+custom:
+  filesTableName: ${self:service}-files-${self:provider.stage}
+  filesBucketName: ${self:service}-uploads-${self:provider.stage}-${aws:accountId}
+
+functions:
+  getUploadUrl:
+    handler: src/handlers/getUploadUrl.handler
+    events:
+      - httpApi:
+          path: /get-upload-url
+          method: post
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  recordMetadata:
+    handler: src/handlers/recordMetadata.handler
+    events:
+      - httpApi:
+          path: /files
+          method: post
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  listFiles:
+    handler: src/handlers/listFiles.handler
+    events:
+      - httpApi:
+          path: /files
+          method: get
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  deleteFile:
+    handler: src/handlers/deleteFile.handler
+    events:
+      - httpApi:
+          path: /files/{fileId}
+          method: delete
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  renameFile:
+    handler: src/handlers/renameFile.handler
+    events:
+      - httpApi:
+          path: /files/{fileId}
+          method: patch
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  shareFile:
+    handler: src/handlers/shareFile.handler
+    events:
+      - httpApi:
+          path: /files/{fileId}/share
+          method: post
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+  searchFiles:
+    handler: src/handlers/searchFiles.handler
+    events:
+      - httpApi:
+          path: /files/search
+          method: get
+          authorizer:
+            type: jwt
+            id: !Ref CognitoAuthorizer
+
+resources:
+  Resources:
+    # S3 Bucket for file storage
+    FilesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.filesBucketName}
+        VersioningConfiguration:
+          Status: Enabled
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+                - HEAD
+              MaxAge: 3000
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+    # DynamoDB Table for file metadata
+    FilesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.filesTableName}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: fileId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: fileId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # Cognito User Pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-user-pool-${self:provider.stage}
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+        Schema:
+          - Name: email
+            Required: true
+            Mutable: false
+          - Name: name
+            Required: true
+            Mutable: true
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireUppercase: true
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+
+    # Cognito User Pool Client
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service}-client-${self:provider.stage}
+        UserPoolId: !Ref CognitoUserPool
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+        GenerateSecret: false
+        PreventUserExistenceErrors: ENABLED
+
+    # Cognito Authorizer for API Gateway
+    CognitoAuthorizer:
+      Type: AWS::ApiGatewayV2::Authorizer
+      Properties:
+        Name: CognitoAuthorizer
+        ApiId: !Ref HttpApi
+        AuthorizerType: JWT
+        IdentitySource:
+          - $request.header.Authorization
+        JwtConfiguration:
+          Audience:
+            - !Ref CognitoUserPoolClient
+          Issuer: !Sub https://cognito-idp.${self:provider.region}.amazonaws.com/${CognitoUserPool}
+
+    # CloudWatch Alarm for Lambda Errors
+    LambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-lambda-errors-${self:provider.stage}
+        AlarmDescription: Alert when Lambda functions have errors
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 5
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+
+  Outputs:
+    ApiEndpoint:
+      Description: HTTP API endpoint URL
+      Value: !Sub https://${HttpApi}.execute-api.${self:provider.region}.amazonaws.com
+    
+    UserPoolId:
+      Description: Cognito User Pool ID
+      Value: !Ref CognitoUserPool
+    
+    UserPoolClientId:
+      Description: Cognito User Pool Client ID
+      Value: !Ref CognitoUserPoolClient
+    
+    FilesBucketName:
+      Description: S3 Bucket for file storage
+      Value: !Ref FilesBucket
+    
+    FilesTableName:
+      Description: DynamoDB table for file metadata
+      Value: !Ref FilesTable
+
+plugins:
+  - serverless-offline

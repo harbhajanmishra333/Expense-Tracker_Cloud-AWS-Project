@@ -1,0 +1,342 @@
+service: expense-tracker
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+  
+  environment:
+    EXPENSES_TABLE: ${self:custom.expensesTableName}
+    CATEGORIES_TABLE: ${self:custom.categoriesTableName}
+    REPORTS_BUCKET: ${self:custom.reportsBucketName}
+    REGION: ${self:provider.region}
+  
+  httpApi:
+    cors: true
+    authorizers:
+      CognitoAuthorizer:
+        type: jwt
+        identitySource: $request.header.Authorization
+        issuerUrl: 
+          Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
+        audience:
+          - Ref: CognitoUserPoolClient
+  
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.expensesTableName}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.expensesTableName}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.categoriesTableName}
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - arn:aws:s3:::${self:custom.reportsBucketName}/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: '*'
+
+custom:
+  expensesTableName: ${self:service}-expenses-${self:provider.stage}
+  categoriesTableName: ${self:service}-categories-${self:provider.stage}
+  reportsBucketName: ${self:service}-reports-${self:provider.stage}-${aws:accountId}
+
+functions:
+  # Test Endpoint (No Auth)
+  testEndpoint:
+    handler: src/handlers/testEndpoint.handler
+    events:
+      - httpApi:
+          path: /test
+          method: get
+
+  # Expense Management (No Auth - For Testing)
+  addExpenseNoAuth:
+    handler: src/handlers/addExpenseNoAuth.handler
+    events:
+      - httpApi:
+          path: /expenses-test
+          method: post
+
+  getExpensesNoAuth:
+    handler: src/handlers/getExpensesNoAuth.handler
+    events:
+      - httpApi:
+          path: /expenses-test
+          method: get
+
+  updateExpenseNoAuth:
+    handler: src/handlers/updateExpenseNoAuth.handler
+    events:
+      - httpApi:
+          path: /expenses-test/{expenseId}
+          method: put
+
+  deleteExpenseNoAuth:
+    handler: src/handlers/deleteExpenseNoAuth.handler
+    events:
+      - httpApi:
+          path: /expenses-test/{expenseId}
+          method: delete
+
+  # Expense Management (With Auth)
+  addExpense:
+    handler: src/handlers/addExpense.handler
+    events:
+      - httpApi:
+          path: /expenses
+          method: post
+          authorizer:
+            name: CognitoAuthorizer
+
+  getExpenses:
+    handler: src/handlers/getExpenses.handler
+    events:
+      - httpApi:
+          path: /expenses
+          method: get
+          authorizer:
+            name: CognitoAuthorizer
+
+  updateExpense:
+    handler: src/handlers/updateExpense.handler
+    events:
+      - httpApi:
+          path: /expenses/{expenseId}
+          method: put
+          authorizer:
+            name: CognitoAuthorizer
+
+  deleteExpense:
+    handler: src/handlers/deleteExpense.handler
+    events:
+      - httpApi:
+          path: /expenses/{expenseId}
+          method: delete
+          authorizer:
+            name: CognitoAuthorizer
+
+  # Analytics
+  getAnalytics:
+    handler: src/handlers/getAnalytics.handler
+    events:
+      - httpApi:
+          path: /analytics
+          method: get
+          authorizer:
+            name: CognitoAuthorizer
+
+  # Categories
+  getCategories:
+    handler: src/handlers/getCategories.handler
+    events:
+      - httpApi:
+          path: /categories
+          method: get
+          authorizer:
+            name: CognitoAuthorizer
+
+  addCategory:
+    handler: src/handlers/addCategory.handler
+    events:
+      - httpApi:
+          path: /categories
+          method: post
+          authorizer:
+            name: CognitoAuthorizer
+
+  # Reports
+  generateReport:
+    handler: src/handlers/generateReport.handler
+    timeout: 60
+    events:
+      - httpApi:
+          path: /reports/generate
+          method: post
+          authorizer:
+            name: CognitoAuthorizer
+
+  getReports:
+    handler: src/handlers/getReports.handler
+    events:
+      - httpApi:
+          path: /reports
+          method: get
+          authorizer:
+            name: CognitoAuthorizer
+
+resources:
+  Resources:
+    # DynamoDB Tables
+    ExpensesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.expensesTableName}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: expenseId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: date
+            AttributeType: S
+        KeySchema:
+          - AttributeName: expenseId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIdDateIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: date
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+    CategoriesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.categoriesTableName}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: categoryId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: categoryId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # S3 Bucket for Reports
+    ReportsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.reportsBucketName}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+              MaxAge: 3000
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldReports
+              Status: Enabled
+              ExpirationInDays: 30
+
+    # Cognito User Pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-user-pool-${self:provider.stage}
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+        Schema:
+          - Name: email
+            Required: true
+            Mutable: false
+          - Name: name
+            Required: true
+            Mutable: true
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireUppercase: true
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service}-client-${self:provider.stage}
+        UserPoolId: !Ref CognitoUserPool
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+        GenerateSecret: false
+        PreventUserExistenceErrors: ENABLED
+
+    CognitoAuthorizer:
+      Type: AWS::ApiGatewayV2::Authorizer
+      Properties:
+        Name: CognitoAuthorizer
+        ApiId: !Ref HttpApi
+        AuthorizerType: JWT
+        IdentitySource:
+          - $request.header.Authorization
+        JwtConfiguration:
+          Audience:
+            - !Ref CognitoUserPoolClient
+          Issuer: !Sub https://cognito-idp.${self:provider.region}.amazonaws.com/${CognitoUserPool}
+
+    # CloudWatch Alarms
+    LambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-lambda-errors-${self:provider.stage}
+        AlarmDescription: Alert when Lambda functions have errors
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 5
+        ComparisonOperator: GreaterThanThreshold
+
+  Outputs:
+    ApiEndpoint:
+      Description: HTTP API endpoint URL
+      Value: !Sub https://${HttpApi}.execute-api.${self:provider.region}.amazonaws.com
+    
+    UserPoolId:
+      Description: Cognito User Pool ID
+      Value: !Ref CognitoUserPool
+    
+    UserPoolClientId:
+      Description: Cognito User Pool Client ID
+      Value: !Ref CognitoUserPoolClient
+    
+    ReportsBucketName:
+      Description: S3 Bucket for reports
+      Value: !Ref ReportsBucket
